@@ -46,6 +46,7 @@ interface TreeState {
     // Custom Blocks (Updated signature)
     addCustomBlock: (label: string, type: NodeType, config?: BlockConfig) => void;
     removeCustomBlock: (id: string) => void;
+    updateCustomBlock: (id: string, label: string, config?: BlockConfig) => void;
 
     // Node Updates
     updateNodeConfig: (nodeId: string, config: Partial<BlockConfig>) => void;
@@ -118,13 +119,19 @@ export const useStore = create<TreeState>()(
                     // Import Custom Blocks with Conflict Resolution
                     if (data.customBlocks && Array.isArray(data.customBlocks)) {
                         const existingNames = new Set(state.customBlocks.map(b => b.config?.variableName || b.label));
+
+                        // Build ID mapping: old ID -> new ID
+                        const idMapping = new Map<string, string>();
+
+                        // First pass: create blocks with new IDs and build mapping
                         const newBlocks = data.customBlocks.map((importedBlock: CustomBlock) => {
-                            // Use variableName for uniqueness if available, else label
+                            const newId = uuidv4();
+                            idMapping.set(importedBlock.id, newId);
+
                             const blockName = importedBlock.config?.variableName || importedBlock.label;
 
-                            // If exact block with same config exists, maybe skip? For now, we rename and add as requested.
                             if (!existingNames.has(blockName)) {
-                                return { ...importedBlock, id: uuidv4() };
+                                return { ...importedBlock, id: newId };
                             }
 
                             let name = blockName;
@@ -134,9 +141,17 @@ export const useStore = create<TreeState>()(
                                 attempt++;
                             }
 
-                            // Update both label and variableName if present
                             const newConfig = importedBlock.config ? { ...importedBlock.config, variableName: name } : undefined;
-                            return { ...importedBlock, id: uuidv4(), label: name, config: newConfig };
+                            return { ...importedBlock, id: newId, label: name, config: newConfig };
+                        });
+
+                        // Second pass: update referencedBlockIds in COMBINED conditions
+                        newBlocks.forEach((block: CustomBlock) => {
+                            if (block.config?.conditionCategory === 'COMBINED' && block.config.referencedBlockIds) {
+                                block.config.referencedBlockIds = block.config.referencedBlockIds.map(
+                                    (oldId: string) => idMapping.get(oldId) || oldId
+                                );
+                            }
                         });
 
                         set((current) => ({
@@ -290,6 +305,37 @@ export const useStore = create<TreeState>()(
                 set((state) => ({
                     customBlocks: state.customBlocks.filter(b => b.id !== id)
                 }));
+            },
+
+            updateCustomBlock: (id, label, config) => {
+                set((state) => {
+                    // Update the custom block
+                    const updatedBlocks = state.customBlocks.map(block =>
+                        block.id === id
+                            ? { ...block, label, config }
+                            : block
+                    );
+
+                    // Also update any nodes on canvas using this block
+                    const updatedNodes = state.nodes.map(node => {
+                        if (node.data?.customBlockId === id) {
+                            return {
+                                ...node,
+                                data: {
+                                    ...node.data,
+                                    label,
+                                    config
+                                }
+                            };
+                        }
+                        return node;
+                    });
+
+                    return {
+                        customBlocks: updatedBlocks,
+                        nodes: updatedNodes
+                    };
+                });
             },
 
             updateNodeConfig: (nodeId, partialConfig) => {

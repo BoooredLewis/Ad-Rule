@@ -2,7 +2,7 @@ export type NodeType = 'condition' | 'action' | 'sticky';
 
 // --- Enums for Advanced Logic ---
 
-export type ConditionCategory = 'ENUM' | 'NUMERIC' | 'COMPUTED' | 'GENERIC';
+export type ConditionCategory = 'ENUM' | 'NUMERIC' | 'COMPUTED' | 'GENERIC' | 'COMBINED';
 export type ActionCategory =
     | 'SET_BID'
     | 'SET_BUDGET'
@@ -51,6 +51,7 @@ export interface BlockConfig {
     operator?: Operator;
     targetValue?: string; // e.g. "1000", "US, UK"
     equation?: string; // e.g. "A / B" for Computed
+    referencedBlockIds?: string[]; // IDs of blocks used in COMBINED formulas
 
     // Action Specifics
     actionCategory?: ActionCategory;

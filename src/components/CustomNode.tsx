@@ -201,15 +201,59 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
                 );
             }
 
-            if (cat === 'COMPUTED') {
+            if (cat === 'COMPUTED' || cat === 'COMBINED') {
+                const displayFormula = config.equation || 'No formula';
+
                 return (
-                    <div className="mt-2">
-                        <textarea
-                            className="nodrag w-full h-12 bg-slate-900 border border-slate-700 text-[10px] text-slate-200 rounded p-1.5 font-mono resize-none focus:ring-1 focus:ring-cyan-500 outline-none"
-                            placeholder="Formula..."
-                            value={config.equation || ''}
-                            onChange={(e) => handleChange('equation', e.target.value)}
-                        />
+                    <div className="flex flex-col gap-2 mt-2">
+                        {renderTimeBadge()}
+                        <div className="text-[10px] text-slate-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800 break-all">
+                            <span className="text-slate-600 mr-1">=</span>
+                            {displayFormula}
+                        </div>
+                        {cat === 'COMBINED' && config.referencedBlockIds && config.referencedBlockIds.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                                {config.referencedBlockIds.map((blockId, idx) => {
+                                    const block = useStore.getState().customBlocks.find(b => b.id === blockId);
+                                    return block ? (
+                                        <div key={idx} className="text-[9px] bg-cyan-900/30 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30">
+                                            {block.label}
+                                        </div>
+                                    ) : null;
+                                })}
+                            </div>
+                        )}
+                        {cat === 'COMBINED' && (
+                            <div className="flex gap-2">
+                                <select
+                                    className="nodrag bg-slate-900 border border-slate-700 text-[10px] text-slate-300 rounded px-1 py-0.5 w-16 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                    value={config.operator || 'EQ'}
+                                    onChange={(e) => handleChange('operator', e.target.value)}
+                                >
+                                    <option value="EQ">==</option>
+                                    <option value="GT">&gt;</option>
+                                    <option value="GTE">&gt;=</option>
+                                    <option value="LT">&lt;</option>
+                                    <option value="LTE">&lt;=</option>
+                                </select>
+
+                                <input
+                                    type="text"
+                                    className="nodrag bg-slate-900 border border-slate-700 text-[10px] text-slate-200 rounded px-2 py-0.5 flex-1 min-w-0 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                    placeholder="Value"
+                                    value={config.targetValue || ''}
+                                    onChange={(e) => handleChange('targetValue', e.target.value)}
+                                />
+                            </div>
+                        )}
+                        {cat === 'COMPUTED' && (
+                            <textarea
+                                className="nodrag w-full h-12 bg-slate-900 border border-slate-700 text-[10px] text-slate-200 rounded p-1.5 font-mono resize-none focus:ring-1 focus:ring-cyan-500 outline-none"
+                                placeholder="Formula..."
+                                value={config.equation || ''}
+                                onChange={(e) => handleChange('equation', e.target.value)}
+                            />
+                        )}
                     </div>
                 );
             }

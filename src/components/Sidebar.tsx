@@ -3,12 +3,14 @@ import type { DragEvent } from 'react';
 import { FileCode2, GitFork, Plus, Clock, Activity, DollarSign, Copy, MousePointerClick, Settings, ChevronDown, ChevronRight, StickyNote, Package, Download, Upload } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import Modal from './Modal';
+import FormulaEditor from './FormulaEditor';
 import type {
     ConditionCategory,
     ActionCategory,
     BlockConfig,
     TimeMode,
-    TimeConfig
+    TimeConfig,
+    CustomBlock
 } from '../types';
 
 // Collapsible Section Component
@@ -85,12 +87,20 @@ const PREBUILT_ACTIONS: { label: string; category: ActionCategory; icon: any }[]
 ];
 
 export default function Sidebar() {
-    const { customBlocks, addCustomBlock, removeCustomBlock } = useStore();
+    const { customBlocks, addCustomBlock, removeCustomBlock, updateCustomBlock } = useStore();
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Logic Config State
     const [condCategory, setCondCategory] = useState<ConditionCategory>('ENUM');
     const [varName, setVarName] = useState('');
+
+    // Combined Condition State
+    const [combinedFormula, setCombinedFormula] = useState('');
+    const [referencedBlockIds, setReferencedBlockIds] = useState<string[]>([]);
+
+    // Edit Mode State
+    const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+    const [isEditMode, setIsEditMode] = useState(false);
 
     // Time Config State
     const [isTimeBased, setIsTimeBased] = useState(false);
@@ -105,12 +115,16 @@ export default function Sidebar() {
     const resetForm = () => {
         setCondCategory('ENUM');
         setVarName('');
+        setCombinedFormula('');
+        setReferencedBlockIds([]);
         setIsTimeBased(false);
         setTimeMode('X_DAYS_FROM_NOW');
         setTimeValue(0);
         setTimeValue(0);
         setStartHour(0);
         setEndHour(23);
+        setEditingBlockId(null);
+        setIsEditMode(false);
     };
 
     const onDragStart = (event: DragEvent, nodeType: string, label: string, config?: BlockConfig) => {
@@ -172,6 +186,35 @@ export default function Sidebar() {
         e.target.value = '';
     };
 
+    const handleEditBlock = (block: CustomBlock) => {
+        setEditingBlockId(block.id);
+        setIsEditMode(true);
+        setVarName(block.label);
+        setCondCategory(block.config?.conditionCategory || 'ENUM');
+
+        // Populate time-based settings if applicable
+        if (block.config?.variableType === 'TIME_BASED') {
+            setIsTimeBased(true);
+            const tc = block.config.timeConfig;
+            if (tc) {
+                setTimeMode(tc.mode);
+                setTimeValue(tc.value || 0);
+                setStartHour(tc.startHour || 0);
+                setEndHour(tc.endHour || 23);
+            }
+        } else {
+            setIsTimeBased(false);
+        }
+
+        // Populate combined formula if applicable
+        if (block.config?.conditionCategory === 'COMBINED') {
+            setCombinedFormula(block.config.equation || '');
+            setReferencedBlockIds(block.config.referencedBlockIds || []);
+        }
+
+        setIsModalOpen(true);
+    };
+
     const handleCreateCondition = (e: React.FormEvent) => {
         e.preventDefault();
         if (!varName.trim()) return;
@@ -183,7 +226,57 @@ export default function Sidebar() {
             variableType: isTimeBased ? 'TIME_BASED' : 'STATIC',
         };
 
-        if (isTimeBased) {
+        if (condCategory === 'COMBINED') {
+            // Validate: must have at least one referenced block
+            if (referencedBlockIds.length === 0) {
+                alert('Combined condition must reference at least one condition block. Make sure to select conditions from the dropdown, not just type text.');
+                return;
+            }
+
+            // Validate: formula should only contain chips and operators, not plain text
+            const chipPattern = /\[([^\]]+)\]/g;
+            const formulaWithoutChips = combinedFormula.replace(chipPattern, '').trim();
+            if (formulaWithoutChips && /[a-zA-Z]/.test(formulaWithoutChips)) {
+                alert('Invalid formula: Contains plain text. Please select conditions from the dropdown instead of typing condition names. Only operators (+, -, *, /, parentheses) and condition chips are allowed.');
+                return;
+            }
+
+            // For combined, inherit time config from first referenced block
+            config.equation = combinedFormula;
+            config.referencedBlockIds = referencedBlockIds;
+
+            if (referencedBlockIds.length > 0) {
+                const firstBlock = customBlocks.find(b => b.id === referencedBlockIds[0]);
+                if (firstBlock?.config?.variableType === 'TIME_BASED') {
+                    config.variableType = 'TIME_BASED';
+                    config.timeConfig = firstBlock.config.timeConfig;
+
+                    // Generate time suffix for COMBINED condition name
+                    const tc = firstBlock.config.timeConfig;
+                    if (tc) {
+                        let suffix = '';
+                        if (tc.mode === 'X_DAYS_FROM_NOW') {
+                            if (tc.value === 0) {
+                                suffix = ' - Today';
+                            } else if (tc.value && tc.value > 0) {
+                                suffix = ` - ${tc.value} days ago`;
+                            }
+                        } else if (tc.mode === 'X_HOURS_TILL_NOW') {
+                            suffix = ` - Last ${tc.value} Hours`;
+                        }
+
+                        if (tc.mode === 'WINDOW_DURING_HOURS') {
+                            suffix += ` [${tc.startHour}h-${tc.endHour}h]`;
+                        }
+                        if (tc.mode === 'SPECIFIC_HOUR') {
+                            suffix += ` @ ${tc.startHour}h`;
+                        }
+
+                        finalName = `${varName}${suffix}`;
+                    }
+                }
+            }
+        } else if (isTimeBased) {
             const tConfig: TimeConfig = { mode: timeMode };
 
             // Format Name based on selection
@@ -218,13 +311,15 @@ export default function Sidebar() {
             finalName = `${varName}${suffix}`;
         }
 
-        // Save variableName in config as the clean name + suffix, or just clean name? 
-        // Usually variableName is the semantic ID. Label is the display. 
-        // User said "reflect... on their variable names". 
-        // I will use finalName for both label and variableName to be safe and consistent.
         config.variableName = finalName;
 
-        addCustomBlock(finalName, 'condition', config);
+        // Update or create based on edit mode
+        if (isEditMode && editingBlockId) {
+            updateCustomBlock(editingBlockId, finalName, config);
+        } else {
+            addCustomBlock(finalName, 'condition', config);
+        }
+
         resetForm();
         setIsModalOpen(false);
     };
@@ -272,6 +367,10 @@ export default function Sidebar() {
                                     key={block.id}
                                     className="flex items-center justify-between gap-3 p-2 rounded border border-slate-800 bg-slate-800/20 cursor-grab hover:bg-slate-800 hover:border-cyan-500/30 transition-all group"
                                     onDragStart={(event) => onDragStart(event, block.blockType, block.label, block.config)}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        handleEditBlock(block);
+                                    }}
                                     draggable
                                 >
                                     <div className="flex items-center gap-3 overflow-hidden">
@@ -350,7 +449,7 @@ export default function Sidebar() {
             <Modal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                title="New Condition"
+                title={isEditMode ? "Edit Condition" : "New Condition"}
             >
                 <form onSubmit={handleCreateCondition} className="flex flex-col gap-4">
 
@@ -363,6 +462,7 @@ export default function Sidebar() {
                                     <option value="ENUM">Text / Enum</option>
                                     <option value="NUMERIC">Numeric</option>
                                     <option value="COMPUTED">Computed</option>
+                                    <option value="COMBINED">Combined (Advanced)</option>
                                 </select>
                             </div>
                             <div>
@@ -371,7 +471,7 @@ export default function Sidebar() {
                                     type="text"
                                     value={varName}
                                     onChange={e => setVarName(e.target.value)}
-                                    placeholder="e.g. Sales"
+                                    placeholder={condCategory === 'COMBINED' ? "e.g. ROI" : "e.g. Sales"}
                                     className="w-full text-sm"
                                     autoFocus
                                 />
@@ -380,81 +480,117 @@ export default function Sidebar() {
 
                         <div className="h-px bg-slate-800"></div>
 
-                        {/* Time Sensitive Toggle */}
-                        <div className="flex items-center justify-between">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={isTimeBased}
-                                    onChange={e => setIsTimeBased(e.target.checked)}
-                                    className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
-                                />
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium text-slate-200">Time Sensitive</span>
-                                    <span className="text-[10px] text-slate-500">Variable changes with time</span>
-                                </div>
-                            </label>
-                        </div>
-
-                        {isTimeBased && (
-                            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                        {/* COMBINED Formula Editor */}
+                        {condCategory === 'COMBINED' && (
+                            <div className="flex flex-col gap-3">
                                 <div>
-                                    <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Time Mode</label>
-                                    <select value={timeMode} onChange={e => setTimeMode(e.target.value as any)} className="w-full text-xs">
-                                        <option value="X_DAYS_FROM_NOW">📅 X Days From Now (Offset)</option>
-                                        <option value="X_DAYS_TILL_NOW">⏪ X Days Till Now (Last X)</option>
-                                        <option value="X_HOURS_TILL_NOW">⏱️ X Hours Till Now</option>
-                                        <option value="WINDOW_DURING_HOURS">🕒 X Days + Hour Window</option>
-                                        <option value="SPECIFIC_HOUR">⌚ X Days @ Specific Hour</option>
-                                    </select>
+                                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 block">
+                                        Formula
+                                    </label>
+                                    <FormulaEditor
+                                        value={combinedFormula}
+                                        onChange={(formula, blockIds) => {
+                                            setCombinedFormula(formula);
+                                            setReferencedBlockIds(blockIds);
+                                        }}
+                                        availableBlocks={conditionBlocks}
+                                        timeConfig={referencedBlockIds.length > 0
+                                            ? customBlocks.find(b => b.id === referencedBlockIds[0])?.config?.timeConfig
+                                            : undefined
+                                        }
+                                    />
                                 </div>
+                                <div className="text-[10px] text-slate-400 bg-slate-900/50 p-2 rounded border border-slate-800">
+                                    <span className="font-bold">ℹ️ How it works:</span>
+                                    <ul className="mt-1 space-y-0.5 ml-3 list-disc">
+                                        <li>Type condition names and press space</li>
+                                        <li>Select from dropdown to insert as block</li>
+                                        <li>All blocks must have same time config</li>
+                                        <li>Only +-*/() operators allowed</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        )}
 
-                                {/* Dynamic Inputs based on Mode */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label className="text-[10px] text-slate-400 mb-1 block">
-                                            Value (X)
-                                        </label>
+                        {/* Time Sensitive Toggle */}
+                        {condCategory !== 'COMBINED' && (
+                            <>
+                                <div className="flex items-center justify-between">
+                                    <label className="flex items-center gap-2 cursor-pointer">
                                         <input
-                                            type="number"
-                                            value={timeValue}
-                                            onChange={e => setTimeValue(Number(e.target.value))}
-                                            className="w-full text-xs"
+                                            type="checkbox"
+                                            checked={isTimeBased}
+                                            onChange={e => setIsTimeBased(e.target.checked)}
+                                            className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-indigo-500"
                                         />
-                                        <span className="text-[10px] text-slate-600">0 = Today/Now</span>
-                                    </div>
-
-                                    {(timeMode === 'WINDOW_DURING_HOURS' || timeMode === 'SPECIFIC_HOUR') && (
-                                        <div>
-                                            <label className="text-[10px] text-slate-400 mb-1 block">
-                                                {timeMode === 'SPECIFIC_HOUR' ? 'At Hour (0-23)' : 'Start Hour'}
-                                            </label>
-                                            <input
-                                                type="number"
-                                                min={0} max={23}
-                                                value={startHour}
-                                                onChange={e => setStartHour(Number(e.target.value))}
-                                                className="w-full text-xs"
-                                            />
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-slate-200">Time Sensitive</span>
+                                            <span className="text-[10px] text-slate-500">Variable changes with time</span>
                                         </div>
-                                    )}
-
-                                    {timeMode === 'WINDOW_DURING_HOURS' && (
-                                        <div>
-                                            <label className="text-[10px] text-slate-400 mb-1 block">End Hour</label>
-                                            <input
-                                                type="number"
-                                                min={0} max={23}
-                                                value={endHour}
-                                                onChange={e => setEndHour(Number(e.target.value))}
-                                                className="w-full text-xs"
-                                            />
-                                        </div>
-                                    )}
+                                    </label>
                                 </div>
-                            </div >
-                        )
-                        }
+
+                                {isTimeBased && (
+                                    <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                                        <div>
+                                            <label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Time Mode</label>
+                                            <select value={timeMode} onChange={e => setTimeMode(e.target.value as any)} className="w-full text-xs">
+                                                <option value="X_DAYS_FROM_NOW">📅 X Days From Now (Offset)</option>
+                                                <option value="X_DAYS_TILL_NOW">⏪ X Days Till Now (Last X)</option>
+                                                <option value="X_HOURS_TILL_NOW">⏱️ X Hours Till Now</option>
+                                                <option value="WINDOW_DURING_HOURS">🕒 X Days + Hour Window</option>
+                                                <option value="SPECIFIC_HOUR">⌚ X Days @ Specific Hour</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Dynamic Inputs based on Mode */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-[10px] text-slate-400 mb-1 block">
+                                                    Value (X)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    value={timeValue}
+                                                    onChange={e => setTimeValue(Number(e.target.value))}
+                                                    className="w-full text-xs"
+                                                />
+                                                <span className="text-[10px] text-slate-600">0 = Today/Now</span>
+                                            </div>
+
+                                            {(timeMode === 'WINDOW_DURING_HOURS' || timeMode === 'SPECIFIC_HOUR') && (
+                                                <div>
+                                                    <label className="text-[10px] text-slate-400 mb-1 block">
+                                                        {timeMode === 'SPECIFIC_HOUR' ? 'At Hour (0-23)' : 'Start Hour'}
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min={0} max={23}
+                                                        value={startHour}
+                                                        onChange={e => setStartHour(Number(e.target.value))}
+                                                        className="w-full text-xs"
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {timeMode === 'WINDOW_DURING_HOURS' && (
+                                                <div>
+                                                    <label className="text-[10px] text-slate-400 mb-1 block">End Hour</label>
+                                                    <input
+                                                        type="number"
+                                                        min={0} max={23}
+                                                        value={endHour}
+                                                        onChange={e => setEndHour(Number(e.target.value))}
+                                                        className="w-full text-xs"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div >
+                                )
+                                }
+                            </>
+                        )}
                     </div >
 
                     <div className="flex justify-end gap-2 mt-2">
@@ -470,7 +606,7 @@ export default function Sidebar() {
                             disabled={!varName.trim()}
                             className="btn btn-primary"
                         >
-                            Create
+                            {isEditMode ? "Update" : "Create"}
                         </button>
                     </div>
                 </form >
