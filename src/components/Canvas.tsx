@@ -102,6 +102,10 @@ function CanvasContent() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                isValidConnection={() => true}  // Allow all connections including sticky notes
+                onEdgeDoubleClick={(_, edge) => {
+                    setEdges(getEdges().filter(e => e.id !== edge.id));
+                }}
                 nodeTypes={nodeTypes}
                 onDragOver={onDragOver}
                 onDrop={onDrop}

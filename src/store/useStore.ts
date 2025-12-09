@@ -405,10 +405,76 @@ export const useStore = create<TreeState>()(
                 const idMap = new Map<string, string>();
                 clipNodes.forEach(n => idMap.set(n.id, uuidv4()));
 
+                // Smart positioning: find non-overlapping position
+                let offset = { x: 0, y: 0 };
+
+                if (!position) {
+                    // Calculate bounding box of clipboard nodes
+                    const clipBounds = {
+                        minX: Math.min(...clipNodes.map(n => n.position.x)),
+                        maxX: Math.max(...clipNodes.map(n => n.position.x + 300)), // NODE_WIDTH
+                        minY: Math.min(...clipNodes.map(n => n.position.y)),
+                        maxY: Math.max(...clipNodes.map(n => n.position.y + 160))  // NODE_HEIGHT
+                    };
+                    const clipWidth = clipBounds.maxX - clipBounds.minX;
+                    const clipHeight = clipBounds.maxY - clipBounds.minY;
+
+                    // Check if a position has overlap with existing nodes
+                    const hasOverlap = (testX: number, testY: number) => {
+                        const testBounds = {
+                            minX: clipBounds.minX + testX,
+                            maxX: clipBounds.maxX + testX,
+                            minY: clipBounds.minY + testY,
+                            maxY: clipBounds.maxY + testY
+                        };
+
+                        return nodes.some(node => {
+                            const nodeBounds = {
+                                minX: node.position.x,
+                                maxX: node.position.x + 300,
+                                minY: node.position.y,
+                                maxY: node.position.y + 160
+                            };
+
+                            return !(testBounds.maxX < nodeBounds.minX ||
+                                testBounds.minX > nodeBounds.maxX ||
+                                testBounds.maxY < nodeBounds.minY ||
+                                testBounds.minY > nodeBounds.maxY);
+                        });
+                    };
+
+                    // Try positions prioritizing below the original subtree
+                    const spacing = 100;
+                    const attempts = [
+                        { x: 0, y: clipHeight + spacing },          // Directly below
+                        { x: clipWidth / 2, y: clipHeight + spacing }, // Below-right
+                        { x: -(clipWidth / 2), y: clipHeight + spacing }, // Below-left
+                        { x: clipWidth + spacing, y: clipHeight + spacing }, // Bottom-right diagonal
+                        { x: -(clipWidth + spacing), y: clipHeight + spacing }, // Bottom-left diagonal
+                        { x: clipWidth + spacing, y: 0 },           // Right (fallback)
+                        { x: -(clipWidth + spacing), y: 0 },        // Left (fallback)
+                    ];
+
+                    // Find first non-overlapping position
+                    let found = false;
+                    for (const attempt of attempts) {
+                        if (!hasOverlap(attempt.x, attempt.y)) {
+                            offset = attempt;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    // If all positions overlap, use directly below with extra spacing
+                    if (!found) {
+                        offset = { x: 0, y: clipHeight + spacing * 2 };
+                    }
+                }
+
                 const newNodes = clipNodes.map(n => {
                     const newId = idMap.get(n.id)!;
-                    let x = n.position.x;
-                    let y = n.position.y;
+                    let x = n.position.x + offset.x;
+                    let y = n.position.y + offset.y;
 
                     if (n.id === rootId && position) {
                         x = position.x;
@@ -447,7 +513,7 @@ export const useStore = create<TreeState>()(
                     nodes: [...nodes, ...newNodes],
                     edges: finalEdges
                 });
-            }
+            },
         }),
         {
             name: 'ads-rule-storage',

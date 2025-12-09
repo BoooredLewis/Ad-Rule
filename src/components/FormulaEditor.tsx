@@ -12,7 +12,6 @@ interface FormulaEditorProps {
     value: string;
     onChange: (formula: string, blockIds: string[]) => void;
     availableBlocks: CustomBlock[];
-    timeConfig?: TimeConfig;
 }
 
 const isSameTimeConfig = (c1?: TimeConfig, c2?: TimeConfig): boolean => {
@@ -23,7 +22,7 @@ const isSameTimeConfig = (c1?: TimeConfig, c2?: TimeConfig): boolean => {
         c1.endHour === c2.endHour;
 };
 
-export default function FormulaEditor({ value, onChange, availableBlocks, timeConfig }: FormulaEditorProps) {
+export default function FormulaEditor({ value, onChange, availableBlocks }: FormulaEditorProps) {
     const [parts, setParts] = useState<FormulaPart[]>([]);
     const [cursorPosition, setCursorPosition] = useState(0);
     const [currentInput, setCurrentInput] = useState('');
@@ -84,18 +83,21 @@ export default function FormulaEditor({ value, onChange, availableBlocks, timeCo
             const word = newValue.trim();
 
             if (word && /[a-zA-Z]/.test(word)) {
-                const currentChips = parts.filter(p => p.type === 'chip');
 
                 const filtered = availableBlocks.filter(block => {
-                    if (block.config?.variableType !== 'TIME_BASED') return false;
+                    const timeBased = block.config?.variableType === 'TIME_BASED';
                     const cat = block.config?.conditionCategory;
-                    if (cat !== 'NUMERIC' && cat !== 'COMPUTED') return false;
+                    const numOrComp = cat === 'NUMERIC' || cat === 'COMPUTED';
+                    const labelLower = block.label.toLowerCase();
+                    const wordLower = word.toLowerCase();
+                    const matches = labelLower.includes(wordLower);
 
-                    if (currentChips.length > 0 && timeConfig) {
-                        if (!isSameTimeConfig(timeConfig, block.config?.timeConfig)) return false;
-                    }
+                    // Only show TIME_BASED conditions
+                    if (!timeBased) return false;
+                    // Only NUMERIC and COMPUTED categories
+                    if (!numOrComp) return false;
 
-                    return block.label.toLowerCase().includes(word.toLowerCase());
+                    return matches;
                 });
 
                 if (filtered.length > 0) {
@@ -106,11 +108,15 @@ export default function FormulaEditor({ value, onChange, availableBlocks, timeCo
                 }
             }
 
-            if (word.trim()) {
+            // Only add as text if it's an operator (no letters) or purely numeric
+            if (word.trim() && !/[a-zA-Z]/.test(word)) {
                 insertPart({ type: 'text', content: word });
                 setCurrentInput('');
                 return;
             }
+
+            // If it contains letters but no matches, keep the input (don't add as text)
+            // User can manually clear or continue typing
         }
 
         setCurrentInput(newValue);

@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useRef, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
 import type { NodeProps } from 'reactflow';
 import clsx from 'clsx';
@@ -10,6 +10,7 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
     const { blockType, label, config } = data;
     const updateNodeConfig = useStore(state => state.updateNodeConfig);
     const updateNodeLabel = useStore(state => state.updateNodeLabel);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const handleChange = useCallback((key: string, value: any) => {
         updateNodeConfig(id, { [key]: value });
@@ -18,6 +19,14 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
     const handleLabelChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
         updateNodeLabel(id, e.target.value);
     }, [id, updateNodeLabel]);
+
+    // Auto-resize sticky note textarea on mount and when label changes
+    useEffect(() => {
+        if (blockType === 'sticky' && textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    }, [blockType, label]);
 
     // Render Logic for Inputs
     const renderContent = () => {
@@ -91,6 +100,25 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
                 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
                 const selectedDays = (config.targetValue || '').split(',').filter(Boolean);
 
+                // Smart label display
+                const getDisplayLabel = () => {
+                    if (selectedDays.length === 7) return 'EVERYDAY';
+                    if (selectedDays.length === 5 &&
+                        selectedDays.includes('Monday') &&
+                        selectedDays.includes('Tuesday') &&
+                        selectedDays.includes('Wednesday') &&
+                        selectedDays.includes('Thursday') &&
+                        selectedDays.includes('Friday')) {
+                        return 'WEEKDAY';
+                    }
+                    if (selectedDays.length === 2 &&
+                        selectedDays.includes('Saturday') &&
+                        selectedDays.includes('Sunday')) {
+                        return 'WEEKEND';
+                    }
+                    return selectedDays.length > 0 ? selectedDays.join(', ') : 'Select days...';
+                };
+
                 return (
                     <div className="flex flex-col gap-2 mt-2">
                         <div className="flex gap-2">
@@ -105,10 +133,29 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
 
                             <div className="relative flex-1 group">
                                 <div className="nodrag w-full bg-slate-900 border border-slate-700 text-[10px] text-slate-200 rounded px-2 py-0.5 min-h-[24px] flex items-center overflow-hidden whitespace-nowrap cursor-pointer hover:border-cyan-500/50 transition-colors">
-                                    {selectedDays.length > 0 ? selectedDays.join(', ') : <span className="text-slate-500 italic">Select days...</span>}
+                                    <span className={selectedDays.length === 0 ? 'text-slate-500 italic' : ''}>
+                                        {getDisplayLabel()}
+                                    </span>
                                 </div>
                                 <div className="absolute top-full left-0 w-full pt-1 z-50 hidden group-hover:block">
                                     <div className="bg-slate-800 border border-slate-700 rounded shadow-xl p-1">
+                                        {/* Select All checkbox */}
+                                        <label className="flex items-center gap-2 p-1 hover:bg-slate-700 rounded cursor-pointer border-b border-slate-700 mb-1">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDays.length === 7}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        handleChange('targetValue', days.join(','));
+                                                    } else {
+                                                        handleChange('targetValue', '');
+                                                    }
+                                                }}
+                                                className="w-3 h-3 rounded border-slate-600 bg-slate-900 text-cyan-500 focus:ring-0"
+                                            />
+                                            <span className="text-[10px] text-slate-300 font-bold">Select All</span>
+                                        </label>
+
                                         {days.map(day => (
                                             <label key={day} className="flex items-center gap-2 p-1 hover:bg-slate-700 rounded cursor-pointer">
                                                 <input
@@ -207,22 +254,63 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
                 return (
                     <div className="flex flex-col gap-2 mt-2">
                         {renderTimeBadge()}
-                        <div className="text-[10px] text-slate-400 font-mono bg-slate-950 p-1.5 rounded border border-slate-800 break-all">
-                            <span className="text-slate-600 mr-1">=</span>
-                            {displayFormula}
+                        <div className="text-[10px] font-mono bg-slate-950 p-1.5 rounded border border-slate-800 flex flex-wrap items-center gap-1">
+                            {cat === 'COMBINED' ? (
+                                // Parse and display formula with chips and operators
+                                (() => {
+                                    const formula = config.equation || '';
+                                    const parts: React.ReactNode[] = [];
+                                    const chipPattern = /\[([^\]]+)\]/g;
+                                    let lastIndex = 0;
+                                    let match;
+                                    let key = 0;
+
+                                    while ((match = chipPattern.exec(formula)) !== null) {
+                                        // Add operator/text before chip
+                                        if (match.index > lastIndex) {
+                                            const textBefore = formula.substring(lastIndex, match.index).trim();
+                                            if (textBefore) {
+                                                parts.push(
+                                                    <span key={`op-${key++}`} className="text-slate-400 mx-0.5">
+                                                        {textBefore}
+                                                    </span>
+                                                );
+                                            }
+                                        }
+
+                                        // Add chip
+                                        const chipLabel = match[1];
+                                        parts.push(
+                                            <div key={`chip-${key++}`} className="bg-cyan-900/30 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30 text-[9px]">
+                                                {chipLabel}
+                                            </div>
+                                        );
+
+                                        lastIndex = match.index + match[0].length;
+                                    }
+
+                                    // Add remaining text after last chip
+                                    if (lastIndex < formula.length) {
+                                        const textAfter = formula.substring(lastIndex).trim();
+                                        if (textAfter) {
+                                            parts.push(
+                                                <span key={`op-${key++}`} className="text-slate-400 mx-0.5">
+                                                    {textAfter}
+                                                </span>
+                                            );
+                                        }
+                                    }
+
+                                    return parts.length > 0 ? parts : <span className="text-slate-600">No formula</span>;
+                                })()
+                            ) : (
+                                // COMPUTED: show plain formula
+                                <>
+                                    <span className="text-slate-600 mr-1">=</span>
+                                    <span className="text-slate-400">{displayFormula}</span>
+                                </>
+                            )}
                         </div>
-                        {cat === 'COMBINED' && config.referencedBlockIds && config.referencedBlockIds.length > 0 && (
-                            <div className="flex flex-wrap gap-1">
-                                {config.referencedBlockIds.map((blockId, idx) => {
-                                    const block = useStore.getState().customBlocks.find(b => b.id === blockId);
-                                    return block ? (
-                                        <div key={idx} className="text-[9px] bg-cyan-900/30 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/30">
-                                            {block.label}
-                                        </div>
-                                    ) : null;
-                                })}
-                            </div>
-                        )}
                         {cat === 'COMBINED' && (
                             <div className="flex gap-2">
                                 <select
@@ -353,7 +441,7 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
                 "relative min-w-[200px] p-2 rounded-lg border backdrop-blur-md transition-all",
                 blockType === 'condition' && "bg-slate-800/90 border-cyan-500/30",
                 blockType === 'action' && "bg-indigo-900/90 border-indigo-500/30",
-                blockType === 'sticky' && "bg-yellow-200/90 border-yellow-400 text-slate-900",
+                blockType === 'sticky' && "bg-yellow-200/90 border-yellow-400 text-slate-900 min-w-[180px] max-w-[400px]",
                 selected && "ring-2 ring-white/50 border-transparent shadow-[0_0_20px_rgba(99,102,241,0.5)]"
             )}
         >
@@ -365,11 +453,22 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
 
             {blockType === 'sticky' ? (
                 <textarea
-                    className="w-full h-full bg-transparent border-none resize-none outline-none text-slate-900 font-medium text-sm placeholder-slate-500/50"
+                    ref={textareaRef}
+                    className="w-full min-h-[60px] bg-transparent border-none resize-none outline-none text-slate-900 font-medium text-sm placeholder-slate-500/50 p-3"
                     value={label}
                     onChange={handleLabelChange}
                     placeholder="Type note here..."
-                    onMouseDown={(e) => e.stopPropagation()} // Prevent drag when interacting
+                    onMouseDown={(e) => e.stopPropagation()}
+                    style={{
+                        height: 'auto',
+                        minHeight: '60px',
+                        overflow: 'hidden'
+                    }}
+                    onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = `${target.scrollHeight}px`;
+                    }}
                 />
             ) : (
                 <div className="text-sm font-medium mb-2 text-slate-100 pr-6 break-words">
@@ -379,25 +478,23 @@ const CustomNode = ({ id, data, selected }: NodeProps<BlockData>) => {
 
             {renderContent()}
 
-            {/* Inputs/Outputs for Logic Tree */}
-            {blockType !== 'sticky' && (
-                <>
-                    <Handle
-                        type="target"
-                        position={Position.Left}
-                        className="!bg-slate-400 !w-2.5 !h-2.5 !border-none"
-                    />
+            {/* Inputs/Outputs for Logic Tree - All nodes including sticky notes */}
+            <Handle
+                type="target"
+                position={Position.Left}
+                className="!bg-slate-400 !w-2.5 !h-2.5 !border-none"
+            />
 
-                    <Handle
-                        type="source"
-                        position={Position.Right}
-                        className={clsx(
-                            "!w-2.5 !h-2.5 !border-none",
-                            blockType === 'condition' ? "!bg-cyan-500" : "!bg-indigo-500"
-                        )}
-                    />
-                </>
-            )}
+            <Handle
+                type="source"
+                position={Position.Right}
+                className={clsx(
+                    "!w-2.5 !h-2.5 !border-none",
+                    blockType === 'condition' ? "!bg-cyan-500" :
+                        blockType === 'action' ? "!bg-indigo-500" :
+                            "!bg-yellow-500"  // Yellow for sticky notes
+                )}
+            />
         </div>
     );
 };

@@ -246,34 +246,52 @@ export default function Sidebar() {
             config.referencedBlockIds = referencedBlockIds;
 
             if (referencedBlockIds.length > 0) {
-                const firstBlock = customBlocks.find(b => b.id === referencedBlockIds[0]);
-                if (firstBlock?.config?.variableType === 'TIME_BASED') {
-                    config.variableType = 'TIME_BASED';
-                    config.timeConfig = firstBlock.config.timeConfig;
+                const referencedBlocks = referencedBlockIds
+                    .map(id => customBlocks.find(b => b.id === id))
+                    .filter((b): b is CustomBlock => b !== undefined);
 
-                    // Generate time suffix for COMBINED condition name
-                    const tc = firstBlock.config.timeConfig;
-                    if (tc) {
+                const allTimeBased = referencedBlocks.every(b => b.config?.variableType === 'TIME_BASED');
+
+                if (allTimeBased && referencedBlocks.length > 0) {
+                    const firstTimeConfig = referencedBlocks[0]?.config?.timeConfig;
+
+                    const isSameTimeConfig = (tc1?: TimeConfig, tc2?: TimeConfig): boolean => {
+                        if (!tc1 || !tc2) return !tc1 && !tc2;
+                        return tc1.mode === tc2.mode &&
+                            tc1.value === tc2.value &&
+                            tc1.startHour === tc2.startHour &&
+                            tc1.endHour === tc2.endHour;
+                    };
+
+                    const allSameTimeConfig = referencedBlocks.every(b =>
+                        isSameTimeConfig(firstTimeConfig, b.config?.timeConfig)
+                    );
+
+                    // Only apply time config if ALL blocks have the same one
+                    if (allSameTimeConfig && firstTimeConfig) {
+                        config.variableType = 'TIME_BASED';
+                        config.timeConfig = firstTimeConfig;
+
                         let suffix = '';
-                        if (tc.mode === 'X_DAYS_FROM_NOW') {
-                            if (tc.value === 0) {
+                        if (firstTimeConfig.mode === 'X_DAYS_FROM_NOW') {
+                            if (firstTimeConfig.value === 0) {
                                 suffix = ' - Today';
-                            } else if (tc.value && tc.value > 0) {
-                                suffix = ` - ${tc.value} days ago`;
+                            } else if (firstTimeConfig.value && firstTimeConfig.value > 0) {
+                                suffix = ` - ${firstTimeConfig.value} days ago`;
                             }
-                        } else if (tc.mode === 'X_HOURS_TILL_NOW') {
-                            suffix = ` - Last ${tc.value} Hours`;
+                        } else if (firstTimeConfig.mode === 'X_HOURS_TILL_NOW') {
+                            suffix = ` - Last ${firstTimeConfig.value} Hours`;
                         }
-
-                        if (tc.mode === 'WINDOW_DURING_HOURS') {
-                            suffix += ` [${tc.startHour}h-${tc.endHour}h]`;
+                        if (firstTimeConfig.mode === 'WINDOW_DURING_HOURS') {
+                            suffix += ` [${firstTimeConfig.startHour}h-${firstTimeConfig.endHour}h]`;
                         }
-                        if (tc.mode === 'SPECIFIC_HOUR') {
-                            suffix += ` @ ${tc.startHour}h`;
+                        if (firstTimeConfig.mode === 'SPECIFIC_HOUR') {
+                            suffix += ` @ ${firstTimeConfig.startHour}h`;
                         }
 
                         finalName = `${varName}${suffix}`;
                     }
+                    // If time configs don't match, don't add any suffix
                 }
             }
         } else if (isTimeBased) {
@@ -354,6 +372,25 @@ export default function Sidebar() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
+                    {/* Execution Timing */}
+                    <SidebarCategory title="Execution Timing" count={PREBUILT_CONDITIONS.length} icon={Clock}>
+                        {PREBUILT_CONDITIONS.map((cond, idx) => (
+                            <div
+                                key={idx}
+                                className="flex items-center justify-between gap-3 p-2 rounded border border-slate-800 bg-slate-800/20 cursor-grab hover:bg-slate-800 hover:border-amber-500/30 transition-all group"
+                                onDragStart={(event) => onDragStart(event, 'condition', cond.label, cond.config)}
+                                draggable
+                            >
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    <div className="p-1.5 rounded bg-amber-900/30 text-amber-400">
+                                        <cond.icon size={14} />
+                                    </div>
+                                    <span className="text-sm text-slate-300 truncate">{cond.label}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </SidebarCategory>
+
                     {/* Conditions */}
                     <SidebarCategory title="Conditions" count={conditionBlocks.length} icon={GitFork}>
                         {conditionBlocks.length === 0 ? (
@@ -411,24 +448,6 @@ export default function Sidebar() {
                             ))
                         }
                     </SidebarCategory >
-
-                    <SidebarCategory title="Execution Timing" count={PREBUILT_CONDITIONS.length} icon={Clock}>
-                        {PREBUILT_CONDITIONS.map((cond, idx) => (
-                            <div
-                                key={idx}
-                                className="flex items-center justify-between gap-3 p-2 rounded border border-slate-800 bg-slate-800/20 cursor-grab hover:bg-slate-800 hover:border-amber-500/30 transition-all group"
-                                onDragStart={(event) => onDragStart(event, 'condition', cond.label, cond.config)}
-                                draggable
-                            >
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                    <div className="p-1.5 rounded bg-amber-900/30 text-amber-400">
-                                        <cond.icon size={14} />
-                                    </div>
-                                    <span className="text-sm text-slate-300 truncate">{cond.label}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </SidebarCategory>
 
                     {/* Tools */}
                     < SidebarCategory title="Tools" defaultOpen={false} icon={Package} >
@@ -494,10 +513,6 @@ export default function Sidebar() {
                                             setReferencedBlockIds(blockIds);
                                         }}
                                         availableBlocks={conditionBlocks}
-                                        timeConfig={referencedBlockIds.length > 0
-                                            ? customBlocks.find(b => b.id === referencedBlockIds[0])?.config?.timeConfig
-                                            : undefined
-                                        }
                                     />
                                 </div>
                                 <div className="text-[10px] text-slate-400 bg-slate-900/50 p-2 rounded border border-slate-800">

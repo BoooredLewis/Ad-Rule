@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { Plus, Trash2, FileJson, Clock, Network, Upload, Download } from 'lucide-react';
+import { Plus, Trash2, FileJson, Clock, Network, Upload, Download, Settings } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString() + ' ' + new Date(ts).toLocaleTimeString();
@@ -191,6 +191,12 @@ export default function Dashboard() {
                             <h3 className="text-lg font-semibold text-white mb-1 group-hover:text-indigo-300 transition-colors">
                                 {tree.name}
                             </h3>
+                            {tree.level && (
+                                <div className="inline-flex items-center gap-1.5 bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded text-xs font-medium border border-cyan-500/20 mb-1">
+                                    <Settings size={12} />
+                                    {tree.level}
+                                </div>
+                            )}
                             <div className="flex items-center gap-2 text-xs text-slate-500">
                                 <Clock size={12} />
                                 <span>Updated {formatDate(tree.updatedAt)}</span>

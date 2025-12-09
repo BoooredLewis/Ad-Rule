@@ -90,10 +90,21 @@ export interface PersistedEdge {
     type?: string;
 }
 
+export type ApplicationLevel =
+    | 'Platform'
+    | 'Account'
+    | 'Campaign'
+    | 'Ad Set'
+    | 'Ad'
+    | 'Creative Package'
+    | 'Goods Catalog'
+    | 'Goods SKU';
+
 export interface RuleTree {
     id: string;
     name: string;
     description?: string;
+    level?: ApplicationLevel;  // At which level this tree applies
     nodes: PersistedNode[];
     edges: PersistedEdge[];
     updatedAt: number;
