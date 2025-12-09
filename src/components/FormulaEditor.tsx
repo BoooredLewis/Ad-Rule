@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { X } from 'lucide-react';
-import type { CustomBlock, TimeConfig } from '../types';
+import type { CustomBlock } from '../types';
 
 interface FormulaPart {
     type: 'chip' | 'text';
@@ -14,13 +14,6 @@ interface FormulaEditorProps {
     availableBlocks: CustomBlock[];
 }
 
-const isSameTimeConfig = (c1?: TimeConfig, c2?: TimeConfig): boolean => {
-    if (!c1 || !c2) return !c1 && !c2;
-    return c1.mode === c2.mode &&
-        c1.value === c2.value &&
-        c1.startHour === c2.startHour &&
-        c1.endHour === c2.endHour;
-};
 
 export default function FormulaEditor({ value, onChange, availableBlocks }: FormulaEditorProps) {
     const [parts, setParts] = useState<FormulaPart[]>([]);
